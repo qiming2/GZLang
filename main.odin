@@ -65,5 +65,5 @@ main :: proc() {
                 fmt.eprintf("ERROR: interpreter error")
         }
 
-        fmt.printf("asdas\n")
+        fmt.printf("Settings\n")
 }
