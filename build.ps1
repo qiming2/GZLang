@@ -1,0 +1,1 @@
+rm GzLang.exe ; odin build . ; .\GZLang.exe
