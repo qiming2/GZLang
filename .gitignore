@@ -12,3 +12,5 @@
 *.vsix
 
 *.exe
+.DS_Store
+GZLang
