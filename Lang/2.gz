@@ -1,0 +1,3 @@
+guan a = 1;
+zheng say():
+    guan a = 1 + 2;

@@ -1,15 +1,17 @@
 package main
 
 import "base:runtime"
+import "base:intrinsics"
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
 import "core:text/regex"
-import "base:intrinsics"
+import "core:strconv"
 
-file_path: string : "Lang/1.gz"
-file_path1: string : "Lang/0.gz"
+file_path0: string : "Lang/0.gz"
+file_path1: string : "Lang/1.gz"
+file_path2: string : "Lang/2.gz"
 
 debug_aprint_type :: proc(t : $T) -> string{
 	ti := runtime.type_info_base(type_info_of(type_of(t)))
@@ -101,6 +103,13 @@ advance :: proc(lex: ^gz_lexer) -> gz_token {
         return ret
 }
 
+expect :: proc(lex: ^gz_lexer, kind: GZ_TOKEN_KIND, message: string = "Default Error") {
+	cur := advance(lex)
+	if cur.kind != kind {
+		panic(message)
+	}
+}
+
 peek :: proc(lex: ^gz_lexer) -> gz_token {
         if len(lex.tokens) == lex.index {
                 ret := gz_token{.NONE, "nil"}
@@ -185,10 +194,11 @@ parser_stmt :: proc(parser: ^gz_parser) -> ^gz_stmt{
 		new_stmt := create_new_node(gz_expr_stmt)
 		new_expr := parse_expr_bp(parser, bp = 0)
 		new_stmt.expr = new_expr
-		advance(parser.lexer)
+		expect(parser.lexer, .SEMICOLON, "No end with a semicolon")
 		// fmt.printf("{}\n", new_stmt^)
 		return new_stmt
 	case .IDENTIFIER:
+		fmt.printf("Decl stmt!\n")
 		return {}
 	case .EOF:
 		return{};
@@ -215,7 +225,19 @@ parse :: proc(lexer: ^gz_lexer) -> ^gz_parser {
 	return parser
 }
 
-walk_node :: proc(node : gz_node, sb : ^strings.Builder) {
+walk_node :: proc {
+	walk_node_with_builder,
+	walk_node_default,
+}
+
+walk_node_default :: proc(node: gz_node) {
+	fmt.printf("Start walking node: \n")
+	sb := strings.Builder{}
+	walk_node(node, &sb)
+
+}
+
+walk_node_with_builder :: proc(node: gz_node, sb : ^strings.Builder) {
 	strings.write_byte(sb, ' ')
 	defer strings.pop_byte(sb)
 	#partial switch n in node.derived {
@@ -241,13 +263,173 @@ walk :: proc(program : []gz_node) {
 	}
 }
 
-eval :: proc(node : gz_node) -> gz_runtiem_val{
-	return {}
+is_literal :: proc(token : gz_token) -> (val: gz_runtime_val, success: bool) {
+	val = {}
+	success = false
+	#partial switch token.kind {
+	case .NUMBER:
+		float_val, success_float := strconv.parse_f32(token.value)
+		if !success_float {
+			fmt.printf("string to f32 failed?: {}\n", token.value)
+		}
+		float_ptr := new(f32)
+		float_ptr^ = float_val
+		val.val = gz_runtime_type(float_ptr)
+		success = success_float
+		// fmt.printf("string to f32 passed: {}\n", token.value)
+		return
+	case .STRING:
+		string_ptr := new(string)
+		string_ptr^ = token.value
+		val.val = string_ptr
+		success = true
+		fmt.printf("String literal type: {}", token.value)
+		return
+	case:
+		fmt.printf("None literal type: {}", token.value)
+		return
+	}
+	fmt.printf("None literal type: {}", token.value)
+	return
+}
+
+is_number :: proc {
+	is_number_for_runtime,
+	is_number_for_token,
+}
+
+is_number_for_token :: proc(token : gz_token) -> (ret_a: f32, success: bool) {
+	ret_a = 0
+	success = false
+
+	#partial switch token.kind {
+	case .NUMBER:
+		ret_a, success = strconv.parse_f32(token.value)
+		return
+	case:
+		return
+	}
+
+	return
+}
+
+is_number_for_runtime :: proc(a : gz_runtime_val) -> (ret_a: f32, success: bool) {
+	ret_a = 0
+	success = false
+	#partial switch v in a.val {
+	case ^int:
+		ret_a = f32(v^)
+		success = true
+		return 
+	case ^f32:
+		ret_a = v^
+		success = true
+		return
+	case:
+		fmt.printf("runtime val is not a number: {}", a)
+		return
+	}
+	fmt.printf("runtime val is not a number: {}", a)
+	return
+}
+
+are_both_numbers :: proc(a : gz_runtime_val, b : gz_runtime_val) -> (ret_a : f32, ret_b : f32, success : bool){
+	ret_a = 0.0
+	ret_b = 0.0
+	success = true
+	ret_a, success = is_number(a)
+	ret_b, success = is_number(b)
+	return;
+}
+
+eval :: proc(node : gz_node) -> (ret: gz_runtime_val, success: bool) {
+	ret = {}
+	success = false
+	#partial switch n in node.derived {
+	case ^gz_binary_expr:
+		
+		left_val , success_eval_left := eval(n.left^)
+		if !success_eval_left {
+			fmt.printf("Left eval failed\n")
+			return
+		}
+		right_val, success_eval_right := eval(n.right^)
+		if !success_eval_right {
+			fmt.printf("Right eval failed\n")
+			return
+		}
+		#partial switch n.token.kind {
+		case .PLUS:
+			a, b, success := are_both_numbers(left_val, right_val)
+			if !success {
+				panic("Different types or one of the types is not a number!")
+			}
+			val := new(f32)
+			val^ = a + b
+			ret.val = val
+			return ret, success
+		case .MINUS:
+			a, b, success := are_both_numbers(left_val, right_val)
+			if !success {
+				panic("Different types or one of the types is not a number!")
+			}
+			val := new(f32)
+			val^ = a - b
+			ret.val = val
+			return ret, success
+		case .MULTIPLY:
+			a, b, success := are_both_numbers(left_val, right_val)
+			if !success {
+				panic("Different types or one of the types is not a number!")
+			}
+			val := new(f32)
+			val^ = a * b
+			ret.val = val
+			return ret, success
+		case .DIVIDE:
+			a, b, success := are_both_numbers(left_val, right_val)
+			if !success {
+				panic("Different types or one of the types is not a number!")
+			}
+			val := new(f32)
+			val^ = a / b
+			ret.val = val
+			return ret, success
+		case:
+			fmt.printf("Unknown binary operation\n")
+			return ret, success
+		}
+	case ^gz_literal_expr:
+		ret, success = is_literal(n.token)
+		return 
+	case ^gz_expr_stmt:
+		ret, success = eval(n.expr^)
+		return
+	case:
+		fmt.printf("{} can not interpret node!\n", debug_print(n))
+		return
+	}
+
+	return
 }
 
 interpret_start :: proc(program : []gz_node) {
 	for node in program {
-		fmt.printf("result: {}\n", node, eval(node))
+		result, success := eval(node)
+		if !success {
+			fmt.printf("Eval failed: walk node\n")
+			walk_node(node)
+			return
+		}
+
+		switch res in result.val {
+		case ^int:
+			fmt.printf("result: {}\n", res^)
+		case ^string:
+			fmt.printf("result: {}\n", res^)
+		case ^f32:
+			fmt.printf("result: {}\n", res^)
+		}
 	}
 }
 
@@ -272,7 +454,9 @@ main :: proc() {
 
 	lexer := tokenize(file_string)
         
-    //fmt.printf("size: {}, tokens: {}\n", len(lexer.tokens), lexer.tokens)
+	for tok in lexer.tokens {
+		fmt.printf("token: {}\n", tok)
+	}
         
 	parser := parse(lexer)
 	interpret_success := interpret(parser)

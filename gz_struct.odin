@@ -65,10 +65,12 @@ all_pattern_strings: [dynamic]gz_pattern_tuple = {
 	{"(\\*)",                 .MULTIPLY},
 	{"(\\/)",                 .DIVIDE},
 	{"([1-9](\\d*))",         .NUMBER},
+	{"(0)",                   .NUMBER},
 	{"(\\()",                 .LEFT_PARENTHE},
 	{"(\\))",                 .RIGHT_PARENTHE},
 	{"(\\:)",                 .COLON},
 	{"(\\;)",                 .SEMICOLON},
+	{"(\"\\w+\")",            .STRING},
 }
 
 // -1 means no bp
@@ -173,10 +175,20 @@ gz_binary_expr :: struct {
           right : ^gz_expr,
 }
 
-gz_runtiem_val :: struct {
-    type : union {
-        string,
-        int,
-        f32,
-    }
+gz_iden :: struct {
+    var_name : string
+}
+
+gz_runtime_type :: union {
+    ^string,
+    ^int,
+    ^f32,
+}
+
+gz_runtime_val :: struct {
+    val : gz_runtime_type
+}
+
+gz_runtime :: struct {
+    gz_global_var_map : map[string]gz_runtime_val,
 }
