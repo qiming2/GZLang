@@ -52,25 +52,25 @@ gz_pattern_tuple :: struct {
 }
 // Order matters
 all_pattern_strings: [dynamic]gz_pattern_tuple = {
-	{"(\\s)",                 .NONE},
-	{"(guan\\s)",             .GUAN},
-	{"(zheng\\s)",            .ZHENG},
-	{"([a-zA-Z_]+)",          .IDENTIFIER},
-	{"(\\==)",                .NONE},
-	{"(\\+=)",                .NONE},
-	{"(\\-=)",                .NONE},
-	{"(\\=)",                 .EQUAL},
-	{"(\\+)",                 .PLUS},
-	{"(\\-)",                 .MINUS},
-	{"(\\*)",                 .MULTIPLY},
-	{"(\\/)",                 .DIVIDE},
-	{"([1-9](\\d*))",         .NUMBER},
-	{"(0)",                   .NUMBER},
-	{"(\\()",                 .LEFT_PARENTHE},
-	{"(\\))",                 .RIGHT_PARENTHE},
-	{"(\\:)",                 .COLON},
-	{"(\\;)",                 .SEMICOLON},
-	{"(\"\\w+\")",            .STRING},
+	{"(\\s)",                      .NONE},
+	{"(guan\\s)",                  .GUAN},
+	{"(zheng\\s)",                 .ZHENG},
+	{"([a-zA-Z_][\\w]*)",          .IDENTIFIER},
+	{"(\\==)",                     .NONE},
+	{"(\\+=)",                     .NONE},
+	{"(\\-=)",                     .NONE},
+	{"(\\=)",                      .EQUAL},
+	{"(\\+)",                      .PLUS},
+	{"(\\-)",                      .MINUS},
+	{"(\\*)",                      .MULTIPLY},
+	{"(\\/)",                      .DIVIDE},
+	{"([1-9](\\d*))",              .NUMBER},
+	{"(0)",                        .NUMBER},
+	{"(\\()",                      .LEFT_PARENTHE},
+	{"(\\))",                      .RIGHT_PARENTHE},
+	{"(\\:)",                      .COLON},
+	{"(\\;)",                      .SEMICOLON},
+	{"(\"\\w+\")",                 .STRING},
 }
 
 // -1 means no bp
@@ -179,16 +179,22 @@ gz_iden :: struct {
     var_name : string
 }
 
-gz_runtime_type :: union {
-    ^string,
-    ^int,
-    ^f32,
-}
-
 gz_runtime_val :: struct {
     val : gz_runtime_type
 }
 
-gz_runtime :: struct {
-    gz_global_var_map : map[string]gz_runtime_val,
+gz_runtime_env :: struct {
+    guan_map  : map[string]gz_runtime_val,
+    // zheng_map : map[string]gz_func_literal,
+    fei_map   : map[string]gz_runtime_val,
+}
+
+gz_interpreter :: struct {
+    global_env: gz_runtime_env,
+}
+
+gz_runtime_type :: union {
+    ^string,
+    ^int,
+    ^f32,
 }

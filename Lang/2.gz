@@ -1,3 +1,2 @@
-guan a = 1;
-zheng say():
-    guan a = 1 + 2;
+guan my_first_var = 0;
+fei m_const_var = 1;

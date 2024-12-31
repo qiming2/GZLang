@@ -55,7 +55,7 @@ tokenize :: proc(file_read: string) -> ^gz_lexer {
 	}
 
 	lexer := new(gz_lexer)
-        lexer.index = 0
+    lexer.index = 0
 
 	regex_loop: for {
 		matched_any := false
@@ -85,7 +85,7 @@ tokenize :: proc(file_read: string) -> ^gz_lexer {
 			}
 		}
 		if !matched_any {
-			fmt.eprintf("Unrecognized token: %s size: {}\n", file_read, len(file_read))
+			fmt.eprintf("Unrecognized token: %v size: {}\n", file_read, len(file_read))
 			break regex_loop
 		}
 	}
@@ -106,7 +106,7 @@ advance :: proc(lex: ^gz_lexer) -> gz_token {
 expect :: proc(lex: ^gz_lexer, kind: GZ_TOKEN_KIND, message: string = "Default Error") {
 	cur := advance(lex)
 	if cur.kind != kind {
-		panic(message)
+		panic(fmt.aprintf("Message: %v", message))
 	}
 }
 
@@ -175,7 +175,7 @@ parse_expr_bp :: proc(parser : ^gz_parser, bp : int) -> ^gz_expr {
 			} 
 			break rhs_loop
 		case .SEMICOLON:
-			// fmt.printf("{}\n", cur_token)
+			fmt.printf("Hello? {}\n", cur_token)
 			break rhs_loop
 		case .EOF:
 			break rhs_loop
@@ -194,17 +194,20 @@ parser_stmt :: proc(parser: ^gz_parser) -> ^gz_stmt{
 		new_stmt := create_new_node(gz_expr_stmt)
 		new_expr := parse_expr_bp(parser, bp = 0)
 		new_stmt.expr = new_expr
-		expect(parser.lexer, .SEMICOLON, "No end with a semicolon")
+		expect(parser.lexer, .SEMICOLON, "Not end with a semicolon")
 		// fmt.printf("{}\n", new_stmt^)
 		return new_stmt
-	case .IDENTIFIER:
-		fmt.printf("Decl stmt!\n")
-		return {}
-	case .EOF:
-		return{};
+	case .GUAN:
+		fmt.printf("GUAN decl stmt!\n")
+		new_stmt := create_new_node(gz_expr_stmt)
+		advance(parser.lexer)
+		return new_stmt
+	case:
+		fmt.printf("Unknown started token in parser_stmt %v\n", cur_token)
+		advance(parser.lexer)
+		return nil
 	}
-
-	return {};
+	return nil
 }
 
 
@@ -212,7 +215,10 @@ parser_start :: proc(parser: ^gz_parser) {
 	lexer := parser.lexer
 	cur_token := peek(lexer)
 	for cur_token.kind != .EOF && cur_token.kind != .NONE {
-		append_elem(&parser.program, parser_stmt(parser)^)
+		parsed_stmt := parser_stmt(parser)
+		if parsed_stmt != nil {
+			append_elem(&parser.program, parsed_stmt^)
+		}
 		cur_token = peek(lexer)
 	}
 }
@@ -222,6 +228,7 @@ parse :: proc(lexer: ^gz_lexer) -> ^gz_parser {
 	parser := new(gz_parser)
 	parser.lexer = lexer
 	parser_start(parser)
+	
 	return parser
 }
 
@@ -360,41 +367,41 @@ eval :: proc(node : gz_node) -> (ret: gz_runtime_val, success: bool) {
 		}
 		#partial switch n.token.kind {
 		case .PLUS:
-			a, b, success := are_both_numbers(left_val, right_val)
-			if !success {
-				panic("Different types or one of the types is not a number!")
+			a, b, success_plus := are_both_numbers(left_val, right_val)
+			if !success_plus {
+				panic("Different types or one of the types is not a number!\n")
 			}
 			val := new(f32)
 			val^ = a + b
 			ret.val = val
-			return ret, success
+			return ret, success_plus
 		case .MINUS:
-			a, b, success := are_both_numbers(left_val, right_val)
-			if !success {
-				panic("Different types or one of the types is not a number!")
+			a, b, success_minus := are_both_numbers(left_val, right_val)
+			if !success_minus {
+				panic("Different types or one of the types is not a number!\n")
 			}
 			val := new(f32)
 			val^ = a - b
 			ret.val = val
-			return ret, success
+			return ret, success_minus
 		case .MULTIPLY:
-			a, b, success := are_both_numbers(left_val, right_val)
-			if !success {
-				panic("Different types or one of the types is not a number!")
+			a, b, success_mul := are_both_numbers(left_val, right_val)
+			if !success_mul {
+				panic("Different types or one of the types is not a number!\n")
 			}
 			val := new(f32)
 			val^ = a * b
 			ret.val = val
-			return ret, success
+			return ret, success_mul
 		case .DIVIDE:
-			a, b, success := are_both_numbers(left_val, right_val)
-			if !success {
-				panic("Different types or one of the types is not a number!")
+			a, b, success_div := are_both_numbers(left_val, right_val)
+			if !success_div {
+				panic("Different types or one of the types is not a number!\n")
 			}
 			val := new(f32)
 			val^ = a / b
 			ret.val = val
-			return ret, success
+			return ret, success_div
 		case:
 			fmt.printf("Unknown binary operation\n")
 			return ret, success
@@ -413,7 +420,7 @@ eval :: proc(node : gz_node) -> (ret: gz_runtime_val, success: bool) {
 	return
 }
 
-interpret_start :: proc(program : []gz_node) {
+interpret_start :: proc(inter: ^gz_interpreter, program : []gz_node) {
 	for node in program {
 		result, success := eval(node)
 		if !success {
@@ -433,34 +440,89 @@ interpret_start :: proc(program : []gz_node) {
 	}
 }
 
-interpret :: proc(parser: ^gz_parser) -> bool {
-	// walk(parser.program[:])
+interpret_one_shot :: proc(parser: ^gz_parser) -> bool {
 
-	interpret_start(parser.program[:])
+	inter := new(gz_interpreter)
+	interpret_start(inter, parser.program[:])
 
 	return true;
 }
 
-main :: proc() {
-	file_path, _ := filepath.from_slash(file_path1)
-	file_read, success := os.read_entire_file(file_path)
-	if !success {
-		panic("Cannot read file")
-	}
-	defer delete(file_read)
-
-	file_string := cast(string)file_read
-	//fmt.printf("File Read: %s\n", file_string)
-
-	lexer := tokenize(file_string)
-        
-	for tok in lexer.tokens {
-		fmt.printf("token: {}\n", tok)
-	}
-        
+interpret_continuous :: proc(inter: ^gz_interpreter, code: string) {
+	lexer := tokenize(code)
+	fmt.printf("%v\n", lexer.tokens)
+	defer free(lexer)
 	parser := parse(lexer)
-	interpret_success := interpret(parser)
-	if !interpret_success {
-		//fmt.eprintf("ERROR: interpreter error")
+	defer free(parser)
+	interpret_start(inter, parser.program[:])
+}
+
+interpret :: proc {
+	interpret_one_shot,
+	interpret_continuous,
+}
+
+main :: proc() {
+	is_realtime := false
+
+	file_path, _ := filepath.from_slash(file_path2)
+	if len(os.args) == 1 {
+		fmt.printf("<File> with .gz extension not provided, would go into real-time mode\n")
+		is_realtime = true
+	} else {
+		fmt.printf("Program: {}, fileName: {}.\n", os.args[0], os.args[1])
+		file_path = os.args[1]
 	}
+
+	if is_realtime {
+		fmt.printf("Welcome to GZ lang v0.0.1: \n")
+		inter := new(gz_interpreter)
+		Interpret_loop: for {
+			sb := strings.builder_make(256)
+			read_buf : [256]u8
+			_ = read_buf
+			fmt.printf("> ")
+			n, err := os.read(os.stdin, sb.buf[:])
+			if err != nil {
+				fmt.eprintln("Error reading: ", err)
+				os.exit(1)
+			}
+			
+			sb.buf[n-1] = ';'
+			code := string(sb.buf[:n])
+			fmt.printf(code)
+			interpret(inter, code)
+		}
+	} else {
+		file_read, success := os.read_entire_file(file_path)
+		if !success {
+			panic(fmt.aprintf("Cannot read file: %s\n", file_path))
+		}
+		defer delete(file_read)
+	
+		file_string := string(file_read)
+	
+		// Lexer step
+		lexer := tokenize(file_string)
+		defer free(lexer)
+		// for tok in lexer.tokens {
+		// 	fmt.printf("token: {}\n", tok)
+		// }
+		fmt.printf("Lexer Tokens: %v\n", lexer.tokens)
+			
+		// Parser step
+		// fmt.printf("???\n")
+		parser := parse(lexer)
+		defer free(parser)
+		
+		fmt.printf("%v\n", parser)
+		// walk(parser.program[:])
+
+		interpret_success := interpret(parser)
+		if !interpret_success {
+			fmt.eprintf("ERROR: interpreter error\n")
+		}
+	}
+	
+	// fmt.printf("???\n")
 }
