@@ -13,7 +13,7 @@ file_path0: string : "Lang/0.gz"
 file_path1: string : "Lang/1.gz"
 file_path2: string : "Lang/2.gz"
 
-debug_aprint_type :: proc(t : $T) -> string{
+debug_aprint_type :: proc(t : $T) -> string {
 	ti := runtime.type_info_base(type_info_of(type_of(t)))
 	// info := ti.variant.(runtime.Type_Info_Enum)
 	return fmt.aprintf("{}", ti)
@@ -36,9 +36,9 @@ debug_print_token_slice :: proc(t: []gz_token) {
 }
 
 debug_print :: proc {
-	debug_aprint_type,
 	debug_print_token,
 	debug_print_token_slice,
+	debug_aprint_type,
 }
 
 tokenize :: proc(file_read: string) -> ^gz_lexer {
@@ -103,11 +103,12 @@ advance :: proc(lex: ^gz_lexer) -> gz_token {
         return ret
 }
 
-expect :: proc(lex: ^gz_lexer, kind: GZ_TOKEN_KIND, message: string = "Default Error") {
+expect :: proc(lex: ^gz_lexer, kind: GZ_TOKEN_KIND, message: string = "Default Error") -> gz_token{
 	cur := advance(lex)
 	if cur.kind != kind {
-		panic(fmt.aprintf("Message: %v", message))
+		panic(fmt.aprintf("Message: %v, not: %v", message, cur))
 	}
+	return cur
 }
 
 peek :: proc(lex: ^gz_lexer) -> gz_token {
@@ -117,6 +118,15 @@ peek :: proc(lex: ^gz_lexer) -> gz_token {
         }
 
         return lex.tokens[lex.index]
+}
+
+peek_next :: proc(lex: ^gz_lexer) -> gz_token {
+	if len(lex.tokens) == lex.index + 1 {
+		ret := gz_token{.NONE, "nil"}
+		return ret
+	}
+
+	return lex.tokens[lex.index + 1]
 }
 
 create_new_node :: proc($T : typeid) -> ^T{
@@ -139,15 +149,16 @@ parse_expr_bp :: proc(parser : ^gz_parser, bp : int) -> ^gz_expr {
 	lhs : ^gz_expr
 	cur_token := advance(parser.lexer)
 	#partial switch cur_token.kind {
-	case .NUMBER:
-		fallthrough
 	case .IDENTIFIER:
-		fallthrough
-	case .STRING:
+		new_expr := create_new_node(gz_iden_expr)
+		new_expr.ident = cur_token.value
+		lhs = new_expr
+	case .STRING, .NUMBER:
 		new_expr := create_new_node(gz_literal_expr)
 		new_expr.token = cur_token
 		lhs = new_expr
-		//fmt.printf("{}\n", new_expr^)
+	case:
+		panic(fmt.aprintf("Invalid token during parse expression found: %v\n", cur_token))
 	}
 
 	rhs_loop : for {
@@ -175,7 +186,6 @@ parse_expr_bp :: proc(parser : ^gz_parser, bp : int) -> ^gz_expr {
 			} 
 			break rhs_loop
 		case .SEMICOLON:
-			fmt.printf("Hello? {}\n", cur_token)
 			break rhs_loop
 		case .EOF:
 			break rhs_loop
@@ -187,25 +197,109 @@ parse_expr_bp :: proc(parser : ^gz_parser, bp : int) -> ^gz_expr {
 	return lhs
 }
 
-parser_stmt :: proc(parser: ^gz_parser) -> ^gz_stmt{
+parse_field_list :: proc(parser: ^gz_parser, field_list: ^[dynamic]string) {
+
+}
+
+parse_func_body :: proc(parser: ^gz_parser, func_del: ^gz_func_decl) {
+	lexer := parser.lexer
+	cur_token := peek(lexer)
+	for cur_token.kind != .RIGHT_CURLY {
+		if cur_token.kind == .EOF || cur_token.kind == .NONE {
+			panic("No curly brace provided for func body")
+		}
+		parsed_stmt := parse_stmt(parser)
+		if parsed_stmt != nil {
+			append_elem(&func_del.body, parsed_stmt)
+		}
+		cur_token = peek(lexer)
+	}
+}
+
+parser_zheng_call_list_exprs :: proc(arg_exprs: ^[dynamic]^gz_expr) {
+
+}
+
+parse_stmt :: proc(parser: ^gz_parser) -> ^gz_stmt{
 	cur_token := peek(parser.lexer)
 	#partial switch cur_token.kind {
 	case .NUMBER:
 		new_stmt := create_new_node(gz_expr_stmt)
 		new_expr := parse_expr_bp(parser, bp = 0)
 		new_stmt.expr = new_expr
-		expect(parser.lexer, .SEMICOLON, "Not end with a semicolon")
 		// fmt.printf("{}\n", new_stmt^)
+		expect(parser.lexer, .SEMICOLON, "Not end with a semicolon")
 		return new_stmt
 	case .GUAN:
-		fmt.printf("GUAN decl stmt!\n")
-		new_stmt := create_new_node(gz_expr_stmt)
 		advance(parser.lexer)
+		new_stmt := create_new_node(gz_var_decl)
+		new_stmt.ident = expect(parser.lexer, .IDENTIFIER, "Need to provide a valid name as variable name").value
+		new_stmt.is_const = false
+		expect(parser.lexer, .EQUAL, "Needs an assignment sign")
+		new_stmt.expr = parse_expr_bp(parser, bp = 0)
+		expect(parser.lexer, .SEMICOLON, "Not end with a semicolon")
 		return new_stmt
-	case:
-		fmt.printf("Unknown started token in parser_stmt %v\n", cur_token)
+	case .FEI:
+		advance(parser.lexer)
+		new_stmt := create_new_node(gz_var_decl)
+		new_stmt.ident = expect(parser.lexer, .IDENTIFIER, "Need to provide a variable name").value
+		new_stmt.is_const = true
+		expect(parser.lexer, .EQUAL, "Needs an assignment sign")
+		new_stmt.expr = parse_expr_bp(parser, bp = 0)
+		expect(parser.lexer, .SEMICOLON, "Not end with a semicolon")
+		return new_stmt
+	case .ZHENG:
+		fmt.printf("Entered ZHENG parsing branch\n")
+		advance(parser.lexer)
+		new_stmt := create_new_node(gz_func_decl)
+		new_stmt.ident = expect(parser.lexer, .IDENTIFIER, "Need to provide a variable name").value
+		expect(parser.lexer, .LEFT_PAREN, "Need to enclose args with parentheses")
+		// Parser func literal arg list
+		parse_field_list(parser, &new_stmt.arg_list)
+		expect(parser.lexer, .RIGHT_PAREN, "Need to enclose args with parentheses")
+		expect(parser.lexer, .LEFT_CURLY, "Need to enclose func body with curly brackets")
+		parse_func_body(parser, new_stmt)
+		expect(parser.lexer, .RIGHT_CURLY, "Need to enclose func body with curly brackets")
+		return new_stmt
+	case .IDENTIFIER:
+		next_tok := peek_next(parser.lexer)
+		#partial switch next_tok.kind {
+		case .EQUAL:
+			// Assignment stmt
+			advance(parser.lexer)
+			new_stmt := create_new_node(gz_assign_stmt)
+			new_stmt.ident = cur_token.value
+			expect(parser.lexer, .EQUAL, "Needs an assignment sign")
+			new_stmt.expr = parse_expr_bp(parser, bp = 0)
+			expect(parser.lexer, .SEMICOLON, "Not end with a semicolon")
+			return new_stmt
+		case .LEFT_PAREN:
+			// call expr
+			// pass identifier
+			advance(parser.lexer)
+			// pass left parenthesis
+			advance(parser.lexer)
+			new_stmt := create_new_node(gz_expr_stmt)
+			new_expr := create_new_node(gz_call_expr)
+			new_expr.ident = cur_token.value
+			parser_zheng_call_list_exprs(&new_expr.arg_exprs)
+			expect(parser.lexer, .RIGHT_PAREN, fmt.aprintf("Zheng func: %v call args need to be enclosed with paretheses!", cur_token.value))
+			expect(parser.lexer, .SEMICOLON, "Not end with a semicolon")
+			new_stmt.expr = new_expr
+			return new_stmt
+		case:
+			// Not a stmt and pass it to the expr
+			new_stmt := create_new_node(gz_expr_stmt)
+			new_stmt.expr = parse_expr_bp(parser, bp = 0)
+			// fmt.printf("{}\n", new_stmt^)
+			expect(parser.lexer, .SEMICOLON, "Not end with a semicolon")
+			return new_stmt
+		}
+	case .SEMICOLON:
 		advance(parser.lexer)
 		return nil
+	case:
+		panic(fmt.aprintf("Unknown started token in parse_stmt %v\n", cur_token))
 	}
 	return nil
 }
@@ -215,9 +309,9 @@ parser_start :: proc(parser: ^gz_parser) {
 	lexer := parser.lexer
 	cur_token := peek(lexer)
 	for cur_token.kind != .EOF && cur_token.kind != .NONE {
-		parsed_stmt := parser_stmt(parser)
+		parsed_stmt := parse_stmt(parser)
 		if parsed_stmt != nil {
-			append_elem(&parser.program, parsed_stmt^)
+			append_elem(&parser.program, parsed_stmt)
 		}
 		cur_token = peek(lexer)
 	}
@@ -237,32 +331,34 @@ walk_node :: proc {
 	walk_node_default,
 }
 
-walk_node_default :: proc(node: gz_node) {
+walk_node_default :: proc(node: ^gz_node) {
 	fmt.printf("Start walking node: \n")
 	sb := strings.Builder{}
 	walk_node(node, &sb)
-
 }
 
-walk_node_with_builder :: proc(node: gz_node, sb : ^strings.Builder) {
+walk_node_with_builder :: proc(node: ^gz_node, sb : ^strings.Builder) {
 	strings.write_byte(sb, ' ')
 	defer strings.pop_byte(sb)
 	#partial switch n in node.derived {
 	case ^gz_binary_expr:
 		fmt.printf("{} {} {}\n", strings.to_string(sb^), debug_print(n), n.token)
-		walk_node(n.left^, sb)
-		walk_node(n.right^, sb)
+		walk_node(n.left, sb)
+		walk_node(n.right, sb)
 	case ^gz_literal_expr:
 		fmt.printf("{} {} {}\n", strings.to_string(sb^), debug_print(n), n.token)
 	case ^gz_expr_stmt:
 		fmt.printf("{} {}\n", strings.to_string(sb^), debug_print(n))
-		walk_node(n.expr^, sb)
+		walk_node(n.expr, sb)
+	case ^gz_var_decl:
+		fmt.printf("{} {}\n", strings.to_string(sb^), n.ident)
+		walk_node(n.expr, sb)
 	case:
-		fmt.printf("{} {} other derived node not being printed!\n", strings.to_string(sb^), debug_print(n))
+		fmt.printf("{} {} other derived node not being interpreted!\n", strings.to_string(sb^), n)
 	}
 }
 
-walk :: proc(program : []gz_node) {
+walk :: proc(program : []^gz_node) {
 	fmt.printf("Program start: \n")
 	sb := strings.Builder{}
 	for node in program {
@@ -349,18 +445,17 @@ are_both_numbers :: proc(a : gz_runtime_val, b : gz_runtime_val) -> (ret_a : f32
 	return;
 }
 
-eval :: proc(node : gz_node) -> (ret: gz_runtime_val, success: bool) {
-	ret = {}
+eval :: proc(env: ^gz_runtime_env, node : ^gz_node) -> (ret: gz_runtime_val, success: bool) {
+	ret = {nil, false}
 	success = false
 	#partial switch n in node.derived {
-	case ^gz_binary_expr:
-		
-		left_val , success_eval_left := eval(n.left^)
+	case ^gz_binary_expr:		
+		left_val , success_eval_left := eval(env, n.left)
 		if !success_eval_left {
 			fmt.printf("Left eval failed\n")
 			return
 		}
-		right_val, success_eval_right := eval(n.right^)
+		right_val, success_eval_right := eval(env, n.right)
 		if !success_eval_right {
 			fmt.printf("Right eval failed\n")
 			return
@@ -406,29 +501,90 @@ eval :: proc(node : gz_node) -> (ret: gz_runtime_val, success: bool) {
 			fmt.printf("Unknown binary operation\n")
 			return ret, success
 		}
+	case ^gz_iden_expr:
+		ret, success = get_var(env, n.ident, false)
+		if success {
+			return
+		}
+
+		ret, success = get_var(env, n.ident, true)
+		if success {
+			return
+		}
+		panic(fmt.aprintf("Variable used before declaration: %v\n", n.ident))
 	case ^gz_literal_expr:
 		ret, success = is_literal(n.token)
 		return 
 	case ^gz_expr_stmt:
-		ret, success = eval(n.expr^)
+		ret, success = eval(env, n.expr)
+		if !success {
+			fmt.printf("Malformed stmt: %v", n)
+		}
+		return
+	case ^gz_func_decl:
+		if exist_var(env, n.ident) {
+			panic(fmt.aprintf("Redeclaration of variable: %v\n", n.ident))
+		}
+
+		ret, success = {n, true}, true
+		set_var(env, n.ident, ret)
+		fmt.printf("Stored func : %v, value: %v, is const: %v\n", n.ident, ret, true)
+		return
+	case ^gz_call_expr:
+		runtime_val, success_get_call_expr := get_var(env, n.ident)
+		if !success_get_call_expr {
+			panic(fmt.aprintf("Func: %v not declared!\n", n.ident))
+		}
+
+		func, ok := runtime_val.val.(^gz_func_decl)
+		if !ok {
+			panic(fmt.aprintf("%v is not a zheng func!\n", n.ident))
+		}
+
+		interpret_start(env, transmute([]^gz_node)(func.body[:]))
+		return runtime_val, true
+	case ^gz_var_decl:
+		if exist_var(env, n.ident) {
+			panic(fmt.aprintf("Redeclaration of: %s\n", n.ident))
+		}
+
+		ret, success = eval(env, n.expr)
+		ret.is_const = n.is_const
+		if !success {
+			fmt.printf("Malformed expression on right hand side: %v", n)
+			return
+		}
+		set_var(env, n.ident, ret)
+		fmt.printf("Stored var : %v, value: %v, is const: %v\n", n.ident, ret, n.is_const)
+		return
+	case ^gz_assign_stmt:
+		ret, success = get_var(env, n.ident)
+		if !success || ret.is_const {
+			panic(fmt.aprintf("Can not assign a val to a non-existent var or const var: %s\n", n.ident))
+		}
+
+		ret, success = eval(env, n.expr)
+		if !success {
+			panic(fmt.aprintf("Expression evaluation failed when assigning to a variable %s\n", n.ident))
+		}
+		set_var(env, n.ident, ret)
 		return
 	case:
-		fmt.printf("{} can not interpret node!\n", debug_print(n))
+		fmt.printf("{} can not interpret node!\n", n)
 		return
 	}
 
 	return
 }
 
-interpret_start :: proc(inter: ^gz_interpreter, program : []gz_node) {
+interpret_start :: proc(env: ^gz_runtime_env, program : []^gz_node) {
 	for node in program {
-		result, success := eval(node)
+		result, success := eval(env, node)
 		if !success {
 			fmt.printf("Eval failed: walk node\n")
 			walk_node(node)
 			return
 		}
-
 		switch res in result.val {
 		case ^int:
 			fmt.printf("result: {}\n", res^)
@@ -436,6 +592,8 @@ interpret_start :: proc(inter: ^gz_interpreter, program : []gz_node) {
 			fmt.printf("result: {}\n", res^)
 		case ^f32:
 			fmt.printf("result: {}\n", res^)
+		case ^gz_func_decl:
+			fmt.printf("result: assigned function literal to %v\n", res.ident)
 		}
 	}
 }
@@ -443,18 +601,17 @@ interpret_start :: proc(inter: ^gz_interpreter, program : []gz_node) {
 interpret_one_shot :: proc(parser: ^gz_parser) -> bool {
 
 	inter := new(gz_interpreter)
-	interpret_start(inter, parser.program[:])
+	interpret_start(&inter.global_env, parser.program[:])
 
 	return true;
 }
 
 interpret_continuous :: proc(inter: ^gz_interpreter, code: string) {
 	lexer := tokenize(code)
-	fmt.printf("%v\n", lexer.tokens)
 	defer free(lexer)
 	parser := parse(lexer)
 	defer free(parser)
-	interpret_start(inter, parser.program[:])
+	interpret_start(&inter.global_env, parser.program[:])
 }
 
 interpret :: proc {
@@ -490,7 +647,6 @@ main :: proc() {
 			
 			sb.buf[n-1] = ';'
 			code := string(sb.buf[:n])
-			fmt.printf(code)
 			interpret(inter, code)
 		}
 	} else {
@@ -501,22 +657,18 @@ main :: proc() {
 		defer delete(file_read)
 	
 		file_string := string(file_read)
-	
 		// Lexer step
 		lexer := tokenize(file_string)
 		defer free(lexer)
-		// for tok in lexer.tokens {
-		// 	fmt.printf("token: {}\n", tok)
-		// }
-		fmt.printf("Lexer Tokens: %v\n", lexer.tokens)
+
+		for tok in lexer.tokens {
+			debug_print_token(tok)
+		}
 			
 		// Parser step
 		// fmt.printf("???\n")
 		parser := parse(lexer)
 		defer free(parser)
-		
-		fmt.printf("%v\n", parser)
-		// walk(parser.program[:])
 
 		interpret_success := interpret(parser)
 		if !interpret_success {

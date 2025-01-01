@@ -1,2 +1,6 @@
-guan my_first_var = 0;
-fei m_const_var = 1;
+guan my_first_var = 1231.0;
+my_first_var + 2.001;
+1 + my_first_var;
+my_first_var / 100;
+my_first_var = my_first_var / 100 - 12.31;
+fei my_const_var = 100;

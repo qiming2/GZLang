@@ -14,12 +14,12 @@ Parser:
 Interpretor:
     add a new entry to gz_runtime_val if it is an expression
     modify interpretor functionality
-
 */
 
 GZ_TOKEN_KIND :: enum {
     // Keyword
     GUAN = 0,
+    FEI,
     ZHENG,
     IDENTIFIER,
 
@@ -27,8 +27,10 @@ GZ_TOKEN_KIND :: enum {
     STRING,
     NUMBER,
     // Sign
-    LEFT_PARENTHE,
-    RIGHT_PARENTHE,
+    LEFT_PAREN,
+    RIGHT_PAREN,
+    LEFT_CURLY,
+    RIGHT_CURLY,
     COLON,
     SEMICOLON,
     PLUS,
@@ -51,26 +53,30 @@ gz_pattern_tuple :: struct {
 	kind   : GZ_TOKEN_KIND,
 }
 // Order matters
-all_pattern_strings: [dynamic]gz_pattern_tuple = {
-	{"(\\s)",                      .NONE},
-	{"(guan\\s)",                  .GUAN},
-	{"(zheng\\s)",                 .ZHENG},
-	{"([a-zA-Z_][\\w]*)",          .IDENTIFIER},
-	{"(\\==)",                     .NONE},
-	{"(\\+=)",                     .NONE},
-	{"(\\-=)",                     .NONE},
-	{"(\\=)",                      .EQUAL},
-	{"(\\+)",                      .PLUS},
-	{"(\\-)",                      .MINUS},
-	{"(\\*)",                      .MULTIPLY},
-	{"(\\/)",                      .DIVIDE},
-	{"([1-9](\\d*))",              .NUMBER},
-	{"(0)",                        .NUMBER},
-	{"(\\()",                      .LEFT_PARENTHE},
-	{"(\\))",                      .RIGHT_PARENTHE},
-	{"(\\:)",                      .COLON},
-	{"(\\;)",                      .SEMICOLON},
-	{"(\"\\w+\")",                 .STRING},
+all_pattern_strings: []gz_pattern_tuple = {
+	{"(^\\s)",                      .NONE},
+	{"(^guan[\\s;])",               .GUAN},
+	{"(^fei[\\s;])",                .FEI},
+	{"(^zheng[\\s;])",              .ZHENG},
+	{"(^[a-zA-Z_][\\w]*)",          .IDENTIFIER},
+	{"(^\\==)",                     .NONE},
+	{"(^\\+=)",                     .NONE},
+	{"(^\\-=)",                     .NONE},
+	{"(^\\=)",                      .EQUAL},
+	{"(^\\+)",                      .PLUS},
+	{"(^\\-)",                      .MINUS},
+	{"(^\\*)",                      .MULTIPLY},
+	{"(^\\/)",                      .DIVIDE},
+	{"(^(\\d*)(\\.)(\\d*))",        .NUMBER},
+	{"(^[1-9](\\d*))",              .NUMBER},
+	{"(^0)",                        .NUMBER},
+	{"(^\\()",                      .LEFT_PAREN},
+	{"(^\\))",                      .RIGHT_PAREN},
+	{"(^\\{)",                      .LEFT_CURLY},
+	{"(^\\})",                      .RIGHT_CURLY},
+	{"(^\\:)",                      .COLON},
+	{"(^\\;)",                      .SEMICOLON},
+	{"(^\"\\w+\")",                 .STRING},
 }
 
 // -1 means no bp
@@ -98,23 +104,35 @@ gz_any_node :: union {
     // expr
     ^gz_binary_expr,
     ^gz_literal_expr,
+    ^gz_iden_expr,
+    ^gz_call_expr,
 
     // stmt
     ^gz_expr_stmt,
-}
+    ^gz_assign_stmt,
 
-gz_any_decl :: union {
-    ^gz_val_decl,
+    // decl
+    ^gz_var_decl,
+    ^gz_func_decl,
 }
 
 gz_decl :: struct {
-    using decl_base : gz_node,
-    derived_decl : gz_any_decl,
+    using decl_base : gz_stmt,
 }
 
-gz_val_decl :: struct {
+gz_var_decl :: struct {
     using decl : gz_decl,
+    ident      : string,
+    expr       : ^gz_expr,
+    is_const   : bool,
+}
 
+gz_func_decl :: struct {
+    using decl : gz_decl,
+    body : [dynamic]^gz_stmt,
+    ident : string,
+    arg_list : [dynamic]string,
+    ret_num : int,
 }
 
 gz_token :: struct {
@@ -129,7 +147,7 @@ gz_lexer :: struct {
 
 gz_parser :: struct {
     lexer   : ^gz_lexer,
-    program : [dynamic]gz_node,
+    program : [dynamic]^gz_node,
 }
 
 gz_expr_stmt :: struct {
@@ -137,8 +155,22 @@ gz_expr_stmt :: struct {
     expr       : ^gz_expr,
 }
 
+gz_assign_stmt :: struct {
+    using stmt : gz_stmt,
+    ident      : string,
+    expr       : ^gz_expr,
+}
+
 gz_any_stmt :: union {
+
+    // stmt
     ^gz_expr_stmt,
+    ^gz_assign_stmt,
+
+    // decl
+    ^gz_var_decl,
+    ^gz_func_decl,
+    
 }
 
 gz_stmt :: struct {
@@ -146,21 +178,16 @@ gz_stmt :: struct {
     derived_stmt    : gz_any_stmt,
 }
 
-GZ_EXPR :: enum {
-        BINARY,
-        
-        // Literal
-        NUMBER_LITERAl
-}
-
-gz_any_exp :: union {
+gz_any_expr :: union {
     ^gz_binary_expr,
     ^gz_literal_expr,
+    ^gz_iden_expr,
+    ^gz_call_expr,
 }
 
 gz_expr :: struct {
     using expr_base : gz_node,
-    derived_expr    : gz_any_exp,
+    derived_expr    : gz_any_expr,
 }
 
 gz_literal_expr :: struct {
@@ -175,18 +202,39 @@ gz_binary_expr :: struct {
           right : ^gz_expr,
 }
 
-gz_iden :: struct {
-    var_name : string
+gz_call_expr :: struct {
+    using expr : gz_expr,
+    ident      : string,
+    arg_exprs  : [dynamic]^gz_expr
+}
+
+gz_iden_expr :: struct {
+    using expr : gz_expr,
+    ident      : string,
 }
 
 gz_runtime_val :: struct {
-    val : gz_runtime_type
+    val : gz_runtime_type,
+    is_const : bool,
 }
 
 gz_runtime_env :: struct {
-    guan_map  : map[string]gz_runtime_val,
-    // zheng_map : map[string]gz_func_literal,
-    fei_map   : map[string]gz_runtime_val,
+    var_map : map[string]gz_runtime_val,
+    parent : ^gz_runtime_env,
+}
+
+get_var :: proc(env: ^gz_runtime_env, ident: string, is_const : bool = false) -> (ret : gz_runtime_val, success : bool) {
+    ret, success = env.var_map[ident]
+    return ret, success
+}
+
+exist_var :: proc(env: ^gz_runtime_env, ident: string) -> (success : bool) {
+    _, success = env.var_map[ident]
+    return success
+}
+
+set_var :: proc(env: ^gz_runtime_env, ident: string, val: gz_runtime_val) {
+    env.var_map[ident] = val
 }
 
 gz_interpreter :: struct {
@@ -197,4 +245,5 @@ gz_runtime_type :: union {
     ^string,
     ^int,
     ^f32,
+    ^gz_func_decl,
 }
