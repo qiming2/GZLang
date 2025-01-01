@@ -446,7 +446,7 @@ are_both_numbers :: proc(a : gz_runtime_val, b : gz_runtime_val) -> (ret_a : f32
 }
 
 eval :: proc(env: ^gz_runtime_env, node : ^gz_node) -> (ret: gz_runtime_val, success: bool) {
-	ret = {nil, false}
+	ret = {nil, false, nil}
 	success = false
 	#partial switch n in node.derived {
 	case ^gz_binary_expr:		
@@ -526,7 +526,7 @@ eval :: proc(env: ^gz_runtime_env, node : ^gz_node) -> (ret: gz_runtime_val, suc
 			panic(fmt.aprintf("Redeclaration of variable: %v\n", n.ident))
 		}
 
-		ret, success = {n, true}, true
+		ret, success = {n, true, env}, true
 		set_var(env, n.ident, ret)
 		fmt.printf("Stored func : %v, value: %v, is const: %v\n", n.ident, ret, true)
 		return
@@ -540,8 +540,10 @@ eval :: proc(env: ^gz_runtime_env, node : ^gz_node) -> (ret: gz_runtime_val, suc
 		if !ok {
 			panic(fmt.aprintf("%v is not a zheng func!\n", n.ident))
 		}
-
-		interpret_start(env, transmute([]^gz_node)(func.body[:]))
+		new_env := new(gz_runtime_env)
+		defer free(new_env)
+		new_env.parent = runtime_val.func_env
+		interpret_start(new_env, transmute([]^gz_node)(func.body[:]))
 		return runtime_val, true
 	case ^gz_var_decl:
 		if exist_var(env, n.ident) {
@@ -578,6 +580,7 @@ eval :: proc(env: ^gz_runtime_env, node : ^gz_node) -> (ret: gz_runtime_val, suc
 }
 
 interpret_start :: proc(env: ^gz_runtime_env, program : []^gz_node) {
+	// clear vars
 	for node in program {
 		result, success := eval(env, node)
 		if !success {

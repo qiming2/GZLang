@@ -216,6 +216,7 @@ gz_iden_expr :: struct {
 gz_runtime_val :: struct {
     val : gz_runtime_type,
     is_const : bool,
+    func_env : ^gz_runtime_env,
 }
 
 gz_runtime_env :: struct {
@@ -224,17 +225,37 @@ gz_runtime_env :: struct {
 }
 
 get_var :: proc(env: ^gz_runtime_env, ident: string, is_const : bool = false) -> (ret : gz_runtime_val, success : bool) {
-    ret, success = env.var_map[ident]
+    cur_env := env
+    ret, success = cur_env.var_map[ident]
+    for !success && cur_env.parent != nil {
+        cur_env = cur_env.parent
+        ret, success = cur_env.var_map[ident]
+    }
     return ret, success
 }
 
 exist_var :: proc(env: ^gz_runtime_env, ident: string) -> (success : bool) {
+    cur_env := env
     _, success = env.var_map[ident]
+    for !success && cur_env.parent != nil {
+        cur_env = cur_env.parent
+        _, success = cur_env.var_map[ident]
+    }
     return success
 }
 
 set_var :: proc(env: ^gz_runtime_env, ident: string, val: gz_runtime_val) {
-    env.var_map[ident] = val
+    cur_env := env
+    _, success := env.var_map[ident]
+    for !success && cur_env.parent != nil {
+        cur_env = cur_env.parent
+        _, success = cur_env.var_map[ident]
+    }
+
+    if !success {
+        cur_env = env
+    }
+    cur_env.var_map[ident] = val
 }
 
 gz_interpreter :: struct {

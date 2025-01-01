@@ -2,15 +2,19 @@ fei my_const = 1;
 guan var_1 = 10;
 
 zheng my_func() {
-    fei my_first_var = 2;
-    var_1 = var_1 + my_first_var;
+    fei local_const = 2;
+    var_1 = var_1 + local_const;
+    add_10_to_var_1();
 }
 
 zheng my_second_func() {
     guan my_first_var = 2;
-    my_first_var + 4;
+    var_1 = my_first_var + var_1;
 }
 
+zheng add_10_to_var_1() {
+    fei local_const = 10;
+    var_1 = var_1 + local_const;
+}
 my_func();
-my_const + 2;
-var_1 / 2 + 10;
+my_second_func();
